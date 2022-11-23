@@ -44,6 +44,7 @@ class Agent(object):
         self.__r = random.Random()
         self.__r.seed(seed)
 
+        """double DQN"""
         self.__policy = DQN(action_dim, device).to(device)
         self.__target = DQN(action_dim, device).to(device)
         if restore is None:
