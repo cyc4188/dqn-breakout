@@ -24,8 +24,8 @@ EPS_DECAY = 1000000
 BATCH_SIZE = 32
 POLICY_UPDATE = 4
 TARGET_UPDATE = 10_000
-WARM_STEPS = 50_000
-MAX_STEPS = 50_000_000
+WARM_STEPS = 50_0
+MAX_STEPS = 50_000
 EVALUATE_FREQ = 100_000
 
 rand = random.Random()
@@ -34,7 +34,7 @@ new_seed = lambda: rand.randint(0, 1000_000)
 os.mkdir(SAVE_PREFIX)
 
 torch.manual_seed(new_seed())
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("mps")
 env = MyEnv(device)
 agent = Agent(
     env.get_action_dim(),
