@@ -16,6 +16,9 @@ from utils_types import (
 from utils_memory import ReplayMemory
 from utils_model import DQN
 
+from main import DQN_MODE
+from main import DQNMode
+
 
 class Agent(object):
 
@@ -44,7 +47,6 @@ class Agent(object):
         self.__r = random.Random()
         self.__r.seed(seed)
 
-        """double DQN"""
         self.__policy = DQN(action_dim, device).to(device)
         self.__target = DQN(action_dim, device).to(device)
         if restore is None:
@@ -76,10 +78,23 @@ class Agent(object):
         state_batch, action_batch, reward_batch, next_batch, done_batch = \
             memory.sample(batch_size)
 
+        # evaluate the policy value
         values = self.__policy(state_batch.float()).gather(1, action_batch)
-        values_next = self.__target(next_batch.float()).max(1).values.detach()
+        # evaluate the target value
+
+        if DQN_MODE == DQNMode.DOUBLE_DQN:
+            # DOUBLE_DQN
+            next_actions = self.__policy(next_batch.float()).max(1).indices
+            values_next = self.__target(next_batch.float()).gather(1, next_actions.unsqueeze(1))
+        # elif DQN_MODE == DQNMode.DUELING_DQN: 
+        else:
+            # NORMAL_DQN
+            values_next = self.__target(next_batch.float()).max(1).values.detach()
+        # compute the expected value
         expected = (self.__gamma * values_next.unsqueeze(1)) * \
             (1. - done_batch) + reward_batch
+
+        # loss value
         loss = F.smooth_l1_loss(values, expected)
 
         self.__optimizer.zero_grad()
