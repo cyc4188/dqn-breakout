@@ -48,16 +48,20 @@ class Agent(object):
         self.__policy = DQN(action_dim, device).to(device)
         self.__target = DQN(action_dim, device).to(device)
         if restore is None:
+            print("Initialized weights.")
             self.__policy.apply(DQN.init_weights)
         else:
-            self.__policy.load_state_dict(torch.load(restore))
+            print("Restored weights from", restore)
+            self.__policy.load_state_dict(torch.load(restore, map_location=device))
         self.__target.load_state_dict(self.__policy.state_dict())
-        self.__optimizer = optim.Adam(
+        self.__optimizer = optim.AdamW(
             self.__policy.parameters(),
-            lr=0.0000625,
+            lr=0.0002,
             eps=1.5e-4,
         )
         self.__target.eval()
+
+        self.eval_mode = False
 
     def run(self, state: TensorStack4, training: bool = False) -> int:
         """run suggests an action for the given state."""
@@ -66,9 +70,10 @@ class Agent(object):
                 (self.__eps_start - self.__eps_final) / self.__eps_decay
             self.__eps = max(self.__eps, self.__eps_final)
 
-        if self.__r.random() > self.__eps:
+        if self.eval_mode or (training and self.__r.random() > self.__eps):
             with torch.no_grad():
                 return self.__policy(state).max(1).indices.item()
+                
         return self.__r.randint(0, self.__action_dim - 1)
 
     def learn(self, memory: ReplayMemory, batch_size: int) -> float:

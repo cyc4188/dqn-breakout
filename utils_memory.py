@@ -3,6 +3,7 @@ from typing import (
 )
 
 import torch
+import pickle
 
 from utils_types import (
     BatchAction,
@@ -63,6 +64,29 @@ class ReplayMemory(object):
         b_reward = self.__m_rewards[indices].to(self.__device).float()
         b_done = self.__m_dones[indices].to(self.__device).float()
         return b_state, b_action, b_reward, b_next, b_done
+
+    def save(self, path: str) -> None:
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'states': self.__m_states,
+                'actions': self.__m_actions,
+                'rewards': self.__m_rewards,
+                'dones': self.__m_dones,
+                'capacity': self.__capacity,
+                'pos': self.__pos,
+                'size': self.__size,
+            }, f)
+
+    def load(self, path: str) -> None:
+        with open(path, 'rb') as f:
+            data = pickle.load(f)
+            self.__m_states = data['states']
+            self.__m_actions = data['actions']
+            self.__m_rewards = data['rewards']
+            self.__m_dones = data['dones']
+            self.__capacity = data['capacity']
+            self.__pos = data['pos']
+            self.__size = data['size']
 
     def __len__(self) -> int:
         return self.__size

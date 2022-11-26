@@ -1,6 +1,7 @@
 from collections import deque
 import os
 import random
+import sys
 from tqdm import tqdm
 
 import torch
@@ -9,7 +10,7 @@ from utils_drl import Agent
 from utils_env import MyEnv
 from utils_memory import ReplayMemory
 
-
+BASIC_MODEL = None
 GAMMA = 0.99
 GLOBAL_SEED = 0
 MEM_SIZE = 100_000
@@ -23,36 +24,77 @@ EPS_DECAY = 1000000
 
 BATCH_SIZE = 32
 POLICY_UPDATE = 4
-TARGET_UPDATE = 10_000
-WARM_STEPS = 50_0
-MAX_STEPS = 50_000
-EVALUATE_FREQ = 100_000
+TARGET_UPDATE = 2000
+WARM_STEPS = 1000
+MAX_STEPS = 5000000
+EVALUATE_FREQ = 10000
+
+EPS_DECAY = MAX_STEPS - WARM_STEPS
+
+BASE_COUNT = 0
+
+BEST_AWARD = 0
+
 
 rand = random.Random()
 rand.seed(GLOBAL_SEED)
 new_seed = lambda: rand.randint(0, 1000_000)
-os.mkdir(SAVE_PREFIX)
 
-torch.manual_seed(new_seed())
-device = torch.device("mps")
-env = MyEnv(device)
-agent = Agent(
-    env.get_action_dim(),
-    device,
-    GAMMA,
-    new_seed(),
-    EPS_START,
-    EPS_END,
-    EPS_DECAY,
-)
-memory = ReplayMemory(STACK_SIZE + 1, MEM_SIZE, device)
+torch.set_num_threads(32)
+
+last = []
+
+for dirpath, dirnames, filenames in os.walk(SAVE_PREFIX):
+    last = [i for i in filenames if not i.endswith("mem")]
+    break
+
+if len(last) == 0:
+    print("No model found, creating new one.")
+    os.makedirs(SAVE_PREFIX, exist_ok=True)
+    torch.manual_seed(new_seed())
+    device = torch.device("cuda")
+    env = MyEnv(device)
+    agent = Agent(
+        env.get_action_dim(),
+        device,
+        GAMMA,
+        new_seed(),
+        EPS_START,
+        EPS_END,
+        EPS_DECAY,
+        BASIC_MODEL
+    )
+    memory = ReplayMemory(STACK_SIZE + 1, MEM_SIZE, device)
+else:
+    last = sorted(last)[-1]
+    print(f"Loading model from {last}")
+    BASE_COUNT = int(last.split("_")[1])
+    torch.manual_seed(new_seed())
+    device = torch.device("cuda")
+    env = MyEnv(device)
+    agent = Agent(
+        env.get_action_dim(),
+        device,
+        GAMMA,
+        new_seed(),
+        EPS_START,
+        EPS_END,
+        EPS_DECAY,
+        os.path.join(SAVE_PREFIX, last),
+    )
+    memory = ReplayMemory(STACK_SIZE + 1, MEM_SIZE, device)
+    memory.load(os.path.join(SAVE_PREFIX, last + ".mem"))
 
 #### Training ####
-obs_queue: deque = deque(maxlen=5)
+obs_queue = deque(maxlen=5)
+BEST_AWARD, _ = env.evaluate(obs_queue, agent, render=False)
 done = True
 
-progressive = tqdm(range(MAX_STEPS), total=MAX_STEPS,
-                   ncols=50, leave=False, unit="b")
+print(f"Best award: {BEST_AWARD}")
+
+last_saved_mem = ''
+
+progressive = tqdm(range(MAX_STEPS), unit="b")
 for step in progressive:
     if done:
         observations, _, _ = env.reset()
@@ -75,13 +117,24 @@ for step in progressive:
     if step % EVALUATE_FREQ == 0:
         avg_reward, frames = env.evaluate(obs_queue, agent, render=RENDER)
         with open("rewards.txt", "a") as fp:
-            fp.write(f"{step//EVALUATE_FREQ:3d} {step:8d} {avg_reward:.1f}\n")
-        if RENDER:
-            prefix = f"eval_{step//EVALUATE_FREQ:03d}"
-            os.mkdir(prefix)
-            for ind, frame in enumerate(frames):
-                with open(os.path.join(prefix, f"{ind:06d}.png"), "wb") as fp:
-                    frame.save(fp, format="png")
+            fp.write(f"Cur: {BASE_COUNT + step//EVALUATE_FREQ:03d} Reward: {avg_reward:.4f}\n")
+
+        progressive.set_description(f"reward: {avg_reward:.4f}")
+
+        if avg_reward < BEST_AWARD:
+            continue
+
+        BEST_AWARD = avg_reward
+        progressive.write(f"\rSaving model with reward {avg_reward:.4f}")
+
         agent.save(os.path.join(
-            SAVE_PREFIX, f"model_{step//EVALUATE_FREQ:03d}"))
+            SAVE_PREFIX, f"model_{BASE_COUNT + step//EVALUATE_FREQ:03d}"))
+        memory.save(os.path.join(
+            SAVE_PREFIX, f"model_{BASE_COUNT + step//EVALUATE_FREQ:03d}.mem"))
+
+        if last_saved_mem != '':
+            os.remove(os.path.join(SAVE_PREFIX, last_saved_mem))
+
+        last_saved_mem = f"model_{BASE_COUNT + step//EVALUATE_FREQ:03d}.mem"
+
         done = True

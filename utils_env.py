@@ -126,6 +126,7 @@ class MyEnv(object):
         """evaluate uses the given agent to run the game for a few episodes and
         returns the average reward and the captured frames."""
         self.__env = self.__env_eval
+        agent.eval_mode = True
         ep_rewards = []
         frames = []
         for _ in range(self.get_eval_lives() * num_episode):
@@ -149,4 +150,5 @@ class MyEnv(object):
             ep_rewards.append(ep_reward)
 
         self.__env = self.__env_train
+        agent.eval_mode = False
         return np.sum(ep_rewards) / num_episode, frames
